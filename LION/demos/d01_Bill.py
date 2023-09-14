@@ -29,8 +29,9 @@ def from_normal_to_HU(image):
 image = np.rot90(nib.load('/media/mcgoug01/nvme/Data/kits19_phases/noncontrast/KiTS-00000.nii.gz').get_fdata()[:,:,50],3)
 normal_image = np.expand_dims(ct.from_HU_to_normal(image),0)
 
-dose_fraction=0.1
+dose_fraction = 0.5
 num_detectors = 3600
+electronic_noise_sigma = 1
 
 vg = ts.volume(shape=normal_image.shape, size=(5, 300, 300))
 pg = ts.parallel(angles=720, shape=(1, num_detectors), size=(1, num_detectors))
@@ -51,14 +52,16 @@ plt.close()
 bowtie = 1/(sigma * np.sqrt(2 * np.pi)) *np.exp( - (bins - mu)**2 / (2 * sigma**2) )
 bowtie /= bowtie.max()*1.2
 bowtie+=+0.16666666667
-
 constant = (1-dose_fraction)/dose_fraction
+
+electronic_noise = 1+((electronic_noise_sigma**2)*constant*sino/Noa)
+
 normal = np.random.normal(size=sino.shape)
-noise = np.sqrt(constant * sino/Noa) * normal
+noise = np.sqrt(constant * (sino/Noa)*electronic_noise) * normal
 sino_noisy = (bowtie*noise)+sino
 
-recon_og = from_normal_to_HU(fbp(A,torch.Tensor(sino)).detach().cpu().numpy())
-recon_sLDCT = from_normal_to_HU(fbp(A,torch.Tensor(sino_noisy)).detach().cpu().numpy())
+recon_og = np.rot90(from_normal_to_HU(fbp(A,torch.Tensor(sino)).detach().cpu().numpy())[0],1)
+recon_sLDCT = np.rot90(from_normal_to_HU(fbp(A,torch.Tensor(sino_noisy)).detach().cpu().numpy())[0],1)
 
 plt.figure(figsize=(12,6))
 plt.subplot(121)

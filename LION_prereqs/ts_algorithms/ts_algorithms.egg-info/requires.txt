@@ -1,0 +1,17 @@
+
+[dev]
+autopep8
+rope
+jedi
+flake8
+importmagic
+black
+yapf
+snakeviz
+sphinx
+sphinx_rtd_theme
+recommonmark
+watchdog
+coverage
+pytest
+pytest-runner

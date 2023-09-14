@@ -1,0 +1,13 @@
+*.png
+*.pyc
+*.egg
+
+
+nohup.out
+**/__pycache__
+*~
+build/*
+.vscode
+
+AItomotools.egg-info
+dist

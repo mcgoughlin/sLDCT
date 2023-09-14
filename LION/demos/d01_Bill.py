@@ -26,7 +26,7 @@ doi: 10.1097/RCT.0b013e318258e891
 def from_normal_to_HU(image):
     return np.maximum((image*3000)-1000,-1000)
 
-image = nib.load('/media/mcgoug01/nvme/Data/kits19_phases/noncontrast/KiTS-00000.nii.gz').get_fdata()[:,:,50]
+image = np.rot90(nib.load('/media/mcgoug01/nvme/Data/kits19_phases/noncontrast/KiTS-00000.nii.gz').get_fdata()[:,:,50],3)
 normal_image = np.expand_dims(ct.from_HU_to_normal(image),0)
 
 dose_fraction=0.1
@@ -38,11 +38,10 @@ A = ts.operator(vg, pg)
 
 sino = A(normal_image)
 
-# Sample air region in sino-space to understand the effect of bg im noise
 air = normal_image[:, 100:150, 150:350]
 dist = np.random.normal(loc=air.mean(), scale=air.std(), size=normal_image.shape)
 P = A(dist)
-Noa = np.var(P)
+Noa = 1/np.var(P) # number of incident photons! this is estimated using an air sample
 print(Noa)
 
 mu, sigma = len(sino)/2, 5 # mean and standard deviation

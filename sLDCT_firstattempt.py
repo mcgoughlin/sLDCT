@@ -24,8 +24,8 @@ doi: 10.1097/RCT.0b013e318258e891
 
 
 
-image = nib.load("/Users/mcgoug01/Library/CloudStorage/OneDrive-CRUKCambridgeInstitute/SecondYear/Segmentation/seg_data/raw_data/coreg_ncct/images/KiTS-00000.nii.gz").get_fdata()[200]
-CT_air_calib = nib.load("/Users/mcgoug01/Library/CloudStorage/OneDrive-CRUKCambridgeInstitute/SecondYear/Segmentation/seg_data/raw_data/coreg_ncct/images/KiTS-00000.nii.gz").get_fdata()[600]
+image = nib.load('/media/mcgoug01/nvme/Data/kits19_phases/noncontrast/KiTS-00000.nii.gz').get_fdata()[:,:,50]
+CT_air_calib = nib.load('/media/mcgoug01/nvme/Data/kits19_phases/noncontrast/KiTS-00000.nii.gz').get_fdata()[:,:,50]
 
 theta = np.linspace(0., 180., 2048, endpoint=False)
 sinogram = radon(image, theta=theta)
@@ -39,12 +39,11 @@ P = radon(CT_air_calib)
 #indices below are meant to roughly mark the region of air scanning in this CT volume
 expPair = (P[370:470,89:92]-P.min())/(P.max()-P.min())
 Noa = 1/np.var(expPair) #estimating the effect of
+print(Noa)
 #this is a set of fractions of the detections of incident photons, which is equal to exp(-Pair)
 
 
 norm_recon= iradon(sinogram)
-###estimating bowtie with above paper
-gain = (3e4)/(5e3)
 
 #peak at half-way
 mu, sigma = len(sinogram)/2, 30 # mean and standard deviation

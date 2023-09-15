@@ -1,11 +1,3 @@
-# =============================================================================
-# This file is part of AItomotools library
-# License : BSD-3
-#
-# Author  : Ander Biguri
-# Modifications: -
-# =============================================================================
-
 
 import numpy as np
 import torch
@@ -13,6 +5,7 @@ import tomosipo as ts
 import matplotlib.pyplot as plt
 import nibabel as nib
 from ts_algorithms import fbp
+import pydicom
 """
 Reference for noise insertion technique:
 Yu, Lifeng PhD; Shiung, Maria BA; Jondal, Dayna BA; McCollough, Cynthia H. PhD. 
@@ -28,24 +21,28 @@ def from_normal_to_HU(image):
 def from_HU_to_normal(image):
     return np.maximum((image+1000)/3000,0)
 
-image = np.rot90(nib.load('/media/mcgoug01/nvme/Data/kits19_phases/noncontrast/KiTS-00000.nii.gz').get_fdata()[:,:,55],3)
-normal_image = np.expand_dims(from_HU_to_normal(image),0)
+image = np.expand_dims(np.rot90(nib.load('/media/mcgoug01/nvme/Data/kits19_phases/noncontrast/KiTS-00000.nii.gz').get_fdata()[:,:,55],3),0)
+normal_image = from_HU_to_normal(image)
 
-dose_fraction = 0.2
-num_detectors = 3600
-electronic_noise_sigma = 0.1
-angles = 360
+dose_fraction = 0.5
+num_detectors = 1216 # num detectors taken from https://s3.amazonaws.com/sgcimages/36_37_40_41_ITN1115_Siemens.pdf
+electronic_noise_sigma = 0.25 # literally just an arbitrary guess - should be roughly 5% of total noise at 20% dose
+angles = 360 # num angles taken from https://s3.amazonaws.com/sgcimages/36_37_40_41_ITN1115_Siemens.pdf
 
 vg = ts.volume(shape=normal_image.shape, size=(5, 300, 300))
 pg = ts.parallel(angles=angles, shape=(1, num_detectors), size=(1, num_detectors))
 A = ts.operator(vg, pg)
 
 expP = A(normal_image) # A() produces non-log transformed sinogram, hence expP
-air = normal_image[:, 100:150, 150:350]
+
+
+air = normal_image[:,10:30, 210:270]
 
 dist = np.random.normal(loc=air.mean(), scale=air.std(), size=normal_image.shape)
 expPair = A(dist) # this is expP of an equivalent 'air' sample, taken from original image
 Noa = 1 / np.var(np.exp((np.log(expPair+1)*-1 - np.log(1)))) # number of incident photons! this is estimated using the air sino
+# Need to estimate Noa based on dose characteristics within dcm rather than image,
+# as it is not easy to extract an air sample from every image
 print(Noa)
 
 mu, sigma = len(expP)/2, 5 # mean and standard deviation
@@ -55,15 +52,17 @@ plt.close()
 bowtie = 1/(sigma * np.sqrt(2 * np.pi)) *np.exp( - (bins - mu)**2 / (2 * sigma**2) )
 bowtie /= bowtie.max()*1.2
 bowtie+=+0.16666666667
-constant = (1-dose_fraction)/dose_fraction
 
-electronic_noise_stddev = np.sqrt(1+((1+dose_fraction)/dose_fraction)*(electronic_noise_sigma**2)*expP/Noa)
-quantum_noise_stddev = np.sqrt(constant * (expP/Noa))
-
-print(electronic_noise_stddev.mean()-1,quantum_noise_stddev.mean())
-
+# equation 11 in paper referenced at top of script
 normal = np.random.normal(size=expP.shape)
-noise = quantum_noise_stddev * quantum_noise_stddev * normal
+term1 = ((1-dose_fraction)/dose_fraction) * (expP/Noa)
+term2 = ((1+dose_fraction)/dose_fraction) * (electronic_noise_sigma**2)*expP/Noa
+noise = np.sqrt(term1 * (1+term2)+1e-9) * normal
+
+electronic_noise_stddev = term1*term2
+quantum_noise_stddev = term1
+print("Electronic noise is {:.2f}% of total noise.".format(100*(electronic_noise_stddev.mean()+1e-9)/(electronic_noise_stddev.mean()+quantum_noise_stddev.mean()+1e-9)))
+
 filtered_noise = (bowtie*noise)
 sino_noisy = filtered_noise+expP
 
@@ -71,11 +70,16 @@ recon_noise = from_normal_to_HU(fbp(A,torch.Tensor(filtered_noise)).detach().cpu
 recon_og = from_normal_to_HU(fbp(A,torch.Tensor(expP)).detach().cpu().numpy())[0]
 recon_sLDCT = from_normal_to_HU(fbp(A,torch.Tensor(sino_noisy)).detach().cpu().numpy())[0]
 
+print(recon_noise.std())
+
 plt.figure(figsize=(18,6))
-plt.subplot(131)
+plt.subplot(121)
 plt.imshow(recon_og,vmin=-200, vmax=200)
-plt.subplot(132)
+plt.title('Original Image')
+plt.axis('off')
+
+plt.subplot(122)
 plt.imshow(recon_sLDCT,vmin=-200, vmax=200)
-plt.subplot(133)
-plt.imshow(recon_noise)
+plt.title('Synthetic {}% Dose Image'.format(dose_fraction*100))
+plt.axis('off')
 plt.show()

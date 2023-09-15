@@ -26,23 +26,25 @@ doi: 10.1097/RCT.0b013e318258e891
 def from_normal_to_HU(image):
     return np.maximum((image*3000)-1000,-1000)
 
-image = np.rot90(nib.load('/media/mcgoug01/nvme/Data/kits19_phases/noncontrast/KiTS-00000.nii.gz').get_fdata()[:,:,50],3)
+image = np.rot90(nib.load('/media/mcgoug01/nvme/Data/kits19_phases/noncontrast/KiTS-00000.nii.gz').get_fdata()[:,:,55],3)
 normal_image = np.expand_dims(ct.from_HU_to_normal(image),0)
 
 dose_fraction = 0.5
 num_detectors = 3600
 electronic_noise_sigma = 1
+angles = 360
 
 vg = ts.volume(shape=normal_image.shape, size=(5, 300, 300))
-pg = ts.parallel(angles=720, shape=(1, num_detectors), size=(1, num_detectors))
+pg = ts.parallel(angles=angles, shape=(1, num_detectors), size=(1, num_detectors))
 A = ts.operator(vg, pg)
 
 sino = A(normal_image)
 
 air = normal_image[:, 100:150, 150:350]
+
 dist = np.random.normal(loc=air.mean(), scale=air.std(), size=normal_image.shape)
 P = A(dist)
-Noa = 1/np.var(P) # number of incident photons! this is estimated using an air sample
+Noa = 1/np.var(np.exp(-P)) # number of incident photons! this is estimated using an air sample
 print(Noa)
 
 mu, sigma = len(sino)/2, 5 # mean and standard deviation
@@ -58,16 +60,18 @@ electronic_noise = 1+((electronic_noise_sigma**2)*constant*sino/Noa)
 
 normal = np.random.normal(size=sino.shape)
 noise = np.sqrt(constant * (sino/Noa)*electronic_noise) * normal
-sino_noisy = (bowtie*noise)+sino
+filtered_noise = (bowtie*noise)
+sino_noisy = filtered_noise+sino
 
-recon_og = np.rot90(from_normal_to_HU(fbp(A,torch.Tensor(sino)).detach().cpu().numpy())[0],1)
-recon_sLDCT = np.rot90(from_normal_to_HU(fbp(A,torch.Tensor(sino_noisy)).detach().cpu().numpy())[0],1)
+recon_noise = from_normal_to_HU(fbp(A,torch.Tensor(filtered_noise)).detach().cpu().numpy())[0]
+recon_og = from_normal_to_HU(fbp(A,torch.Tensor(sino)).detach().cpu().numpy())[0]
+recon_sLDCT = from_normal_to_HU(fbp(A,torch.Tensor(sino_noisy)).detach().cpu().numpy())[0]
 
-plt.figure(figsize=(12,6))
-plt.subplot(121)
-plt.imshow(recon_og.T,vmin=-200,vmax=200)
-plt.colorbar()
-plt.subplot(122)
-plt.imshow(recon_sLDCT.T,vmin=-200,vmax=200)
-plt.colorbar()
+plt.figure(figsize=(18,6))
+plt.subplot(131)
+plt.imshow(recon_og,vmin=-200, vmax=200)
+plt.subplot(132)
+plt.imshow(recon_sLDCT,vmin=-200, vmax=200)
+plt.subplot(133)
+plt.imshow(recon_noise)
 plt.show()

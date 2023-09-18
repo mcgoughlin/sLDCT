@@ -23,7 +23,7 @@ def from_normal_to_HU(image):
 def from_HU_to_normal(image):
     return np.maximum((image+1000)/3000,0)
 
-nifti_folder = '/media/mcgoug01/nvme/Data/kits19_phases/noncontrast/'
+nifti_folder = '/media/mcgoug01/nvme/ThirdYear/MastersProject/data/original_ncct/over_150mAs/images'
 cases = os.listdir(nifti_folder)
 cases.sort()
 target_exposure = 80 # mAs
@@ -80,9 +80,10 @@ def convert_to_ncct(CT_vol,exposure=250,target_dose=80):
 
 for file in cases:
     case = file.split('.')[0]
-    dmccase_fold = "/media/mcgoug01/nvme/Data/C4KC-KiTS/{}".format(case)
+    if not case.startswith('RCC_049'):continue
+    dmccase_fold = "/media/mcgoug01/nvme/Data/AddenbrookesRCC/NCCT/Unenhanced/{}".format(case)
     dmccase_fold = os.path.join(dmccase_fold,os.listdir(dmccase_fold)[0])
-    dmccase_fold = os.path.join(dmccase_fold,[fold for fold in os.listdir(dmccase_fold) if 'noncontrast' in fold.lower()][0])
+    # dmccase_fold = os.path.join(dmccase_fold,[fold for fold in os.listdir(dmccase_fold) if 'noncontrast' in fold.lower()][0])
     num_files = len(os.listdir(dmccase_fold))
 
     exposures = []
@@ -90,8 +91,9 @@ for file in cases:
         dcm = pydicom.dcmread(os.path.join(dmccase_fold, os.listdir(dmccase_fold)[(num_files // 2) - 5 + i]))
         exposures.append(int(dcm[0x0018, 0x1150].value) * int(dcm[0x0018, 0x1151].value) / 1000)
     exposure = np.mean(exposures)
-
-    image = np.expand_dims(np.rot90(nib.load(os.path.join(nifti_folder,file)).get_fdata()[:, :, num_files//2], 3), 0)
+    print(nib.load(os.path.join(nifti_folder,file)).get_fdata().max())
+    image = np.expand_dims(np.rot90(nib.load(os.path.join(nifti_folder,file)).get_fdata()[:, :, -40], 3), 0)
+    print(image.shape,image.max(),image.min())
     normal_image = from_HU_to_normal(image)
 
     exposures = []
@@ -103,13 +105,15 @@ for file in cases:
 
     expP = A(normal_image) # A() produces non-log transformed sinogram, hence expP
 
-    air = normal_image[:,10:30, 210:270]
-
+    air = normal_image[:,30:50, 210:270]
     dist = np.random.normal(loc=air.mean(), scale=air.std(), size=normal_image.shape)
     expPair = A(dist) # this is expP of an equivalent 'air' sample, taken from original image
     # we estimated Noa using an air section of an image - 820 photons at 250mAs dose - KiTS-00000.
     # If we assume number of incident photons is proportional to dose, then we can estimate Noa for any dose
-    Noa = int(exposure * 820 / 250)  # this is the number of incident photons at 250mAs dose
+    Noa = 1/ np.var(np.exp(np.log(expPair+1e-6)-np.log(1e-6)))
+    print(Noa)
+    Noa = int(exposure * 1340 / 224)  # this is the number of incident photons at 250mAs dose
+    print(Noa)
     dose_fraction = target_exposure/exposure # this is the fraction of dose we want to simulate
 
     mu, sigma = len(expP)/2, 5 # mean and standard deviation

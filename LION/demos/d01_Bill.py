@@ -30,7 +30,53 @@ target_exposure = 80 # mAs
 
 num_detectors = 1216  # num detectors taken from https://s3.amazonaws.com/sgcimages/36_37_40_41_ITN1115_Siemens.pdf
 electronic_noise_sigma = 0.1  # literally just an arbitrary guess
-angles = 720  # arbitrary
+angles = 360  # arbitrary
+
+vg = ts.volume(shape=(1, 512, 512), size=(5, 300, 300))
+pg = ts.parallel(angles=angles, shape=(1, num_detectors), size=(1, num_detectors))
+A = ts.operator(vg, pg)
+
+def convert_to_ncct(CT_vol,exposure=250,target_dose=80):
+    for slice in range(CT_vol.shape[-1]):
+        image[slice] = CT_vol[slice]
+        normal_image = from_HU_to_normal(image)
+        expP = A(normal_image)  # A() produces non-log transformed sinogram, hence expP
+
+        air = normal_image[:, 10:30, 210:270]
+
+        dist = np.random.normal(loc=air.mean(), scale=air.std(), size=normal_image.shape)
+        expPair = A(dist)  # this is expP of an equivalent 'air' sample, taken from original image
+        # we estimated Noa using an air section of an image - 820 photons at 250mAs dose - KiTS-00000.
+        # If we assume number of incident photons is proportional to dose, then we can estimate Noa for any dose
+        Noa = int(exposure * 820 / 250)  # this is the number of incident photons at 250mAs dose
+        dose_fraction = target_exposure / exposure  # this is the fraction of dose we want to simulate
+
+        mu, sigma = len(expP) / 2, 5  # mean and standard deviation
+        s = np.random.normal(mu, sigma, 10000)
+        count, bins, ignored = plt.hist(s, num_detectors - 1, density=True)
+        plt.close()
+        bowtie = 1 / (sigma * np.sqrt(2 * np.pi)) * np.exp(- (bins - mu) ** 2 / (2 * sigma ** 2))
+        bowtie /= bowtie.max() * 1.2
+        bowtie += +0.16666666667
+
+        # equation 11 in paper referenced at top of script
+        normal = np.random.normal(size=expP.shape)
+        term1 = ((1 - dose_fraction) / dose_fraction) * (expP / Noa)
+        term2 = ((1 + dose_fraction) / dose_fraction) * (electronic_noise_sigma ** 2) * expP / Noa
+        noise = np.sqrt(term1 * (1 + term2) + 1e-9) * normal
+
+        electronic_noise_stddev = term1 * term2
+        quantum_noise_stddev = term1
+        print("Case {}. Exposure: {:.1f}. Dose Fraction {:.2f}. Number of incident photons: {}.".format(case, exposure,
+                                                                                                        dose_fraction,
+                                                                                                        Noa))
+
+        filtered_noise = (bowtie * noise)
+        sino_noisy = filtered_noise + expP
+
+        recon_noise = from_normal_to_HU(fbp(A, torch.Tensor(filtered_noise)).detach().cpu().numpy())[0]
+        recon_og = from_normal_to_HU(fbp(A, torch.Tensor(expP)).detach().cpu().numpy())[0]
+        recon_sLDCT = from_normal_to_HU(fbp(A, torch.Tensor(sino_noisy)).detach().cpu().numpy())[0]
 
 for file in cases:
     case = file.split('.')[0]
@@ -39,7 +85,13 @@ for file in cases:
     dmccase_fold = os.path.join(dmccase_fold,[fold for fold in os.listdir(dmccase_fold) if 'noncontrast' in fold.lower()][0])
     num_files = len(os.listdir(dmccase_fold))
 
-    image = np.expand_dims(np.rot90(nib.load(os.path.join(nifti_folder,file)).get_fdata()[:,:,num_files//2],3),0)
+    exposures = []
+    for i in range(10):
+        dcm = pydicom.dcmread(os.path.join(dmccase_fold, os.listdir(dmccase_fold)[(num_files // 2) - 5 + i]))
+        exposures.append(int(dcm[0x0018, 0x1150].value) * int(dcm[0x0018, 0x1151].value) / 1000)
+    exposure = np.mean(exposures)
+
+    image = np.expand_dims(np.rot90(nib.load(os.path.join(nifti_folder,file)).get_fdata()[:, :, num_files//2], 3), 0)
     normal_image = from_HU_to_normal(image)
 
     exposures = []
@@ -48,10 +100,6 @@ for file in cases:
         exposures.append(int(dcm[0x0018, 0x1150].value) * int(dcm[0x0018, 0x1151].value)/1000)
     exposure = np.mean(exposures)
     # base dose reading on mid-scan slices
-
-    vg = ts.volume(shape=normal_image.shape, size=(5, 300, 300))
-    pg = ts.parallel(angles=angles, shape=(1, num_detectors), size=(1, num_detectors))
-    A = ts.operator(vg, pg)
 
     expP = A(normal_image) # A() produces non-log transformed sinogram, hence expP
 

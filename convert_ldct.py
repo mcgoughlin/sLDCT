@@ -24,19 +24,6 @@ def from_normal_to_HU(image):
 def from_HU_to_normal(image):
     return np.maximum((image+1000)/3000,0)
 
-nifti_folder = '/media/mcgoug01/nvme/ThirdYear/MastersProject/data/original_ncct/over_150mAs/'
-save_dir = '/media/mcgoug01/nvme/ThirdYear/MastersProject/data/sLDCT/'
-cases = os.listdir(os.path.join(nifti_folder,'images'))
-cases.sort()
-
-num_detectors = 1216  # num detectors taken from https://s3.amazonaws.com/sgcimages/36_37_40_41_ITN1115_Siemens.pdf
-electronic_noise_sigma = 0.1  # literally just an arbitrary guess
-angles = 360  # arbitrary
-
-vg = ts.volume(shape=(1, 512, 512), size=(5, 300, 300))
-pg = ts.parallel(angles=angles, shape=(1, num_detectors), size=(1, num_detectors))
-A = ts.operator(vg, pg)
-
 def do_synthetic_maths(image,A,dose_fraction,electronic_noise_sigma=0.1,
                        is_kits=True):
     normal_image = from_HU_to_normal(image)
@@ -80,6 +67,20 @@ def convert_to_LDCT(CT_vol,A,dose_fraction=0.5,electronic_noise_sigma=0.1,
                                              electronic_noise_sigma=electronic_noise_sigma)
             LDCT_vol[:, :, :, slice] = sLDCT_slice
     return LDCT_vol[0]
+
+
+nifti_folder = '/media/mcgoug01/nvme/ThirdYear/MastersProject/data/original_ncct/over_150mAs/'
+save_dir = '/media/mcgoug01/nvme/ThirdYear/MastersProject/data/sLDCT/'
+cases = os.listdir(os.path.join(nifti_folder,'images'))
+cases.sort()
+
+num_detectors = 1216  # num detectors taken from https://s3.amazonaws.com/sgcimages/36_37_40_41_ITN1115_Siemens.pdf
+electronic_noise_sigma = 0.1  # literally just an arbitrary guess
+angles = 360  # arbitrary
+
+vg = ts.volume(shape=(1, 512, 512), size=(5, 300, 300))
+pg = ts.parallel(angles=angles, shape=(1, num_detectors), size=(1, num_detectors))
+A = ts.operator(vg, pg)
 
 for target_exposure in [150,125,100,75,50,25]:
     print("Target exposure: {}".format(target_exposure))
